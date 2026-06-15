@@ -132,7 +132,7 @@ function useFirebaseRoom(roomCode, playerId, playerName) {
         return {
           code: roomCode,
           players: {
-            [playerId]: { id: playerId, name: playerName, score: 0, willDrive: true },
+            [playerId]: { id: playerId, name: playerName, score: 0, willDrive: true, color: PIN_COLORS[0] },
           },
           driverOrder: [playerId],
           currentDriverIndex: 0,
@@ -149,7 +149,9 @@ function useFirebaseRoom(roomCode, playerId, playerName) {
       if (!current.players) current.players = {};
       if (!current.driverOrder) current.driverOrder = [];
       if (!current.players[playerId]) {
-        current.players[playerId] = { id: playerId, name: playerName, score: 0, willDrive: true };
+        const usedColors = Object.values(current.players).map((p) => p.color);
+        const color = PIN_COLORS.find((c) => !usedColors.includes(c)) || PIN_COLORS[0];
+        current.players[playerId] = { id: playerId, name: playerName, score: 0, willDrive: true, color };
         current.driverOrder.push(playerId);
       }
       return current;
@@ -295,10 +297,6 @@ const styles = {
   errorText: { fontSize: '13px', color: COLORS.crimson, textAlign: 'center' },
   playerList: { display: 'flex', flexDirection: 'column', gap: '8px' },
   playerRow: { display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 0' },
-  playerAvatar: {
-    width: '32px', height: '32px', borderRadius: '50%', background: COLORS.orange, color: COLORS.navy,
-    display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '14px',
-  },
   playerName: { flex: 1, fontSize: '15px' },
   modeRow: { display: 'flex', gap: '8px', marginBottom: '4px' },
   modeButton: {
@@ -370,15 +368,21 @@ const styles = {
   driverResultRow: { display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 0 0', marginTop: '4px' },
   resultRank: { fontFamily: 'system-ui, sans-serif', fontSize: '16px', fontWeight: 700, color: '#9A9588', width: '20px' },
   colorSwatch: { width: '14px', height: '14px', borderRadius: '50%', flexShrink: 0 },
+  colorPickerWrap: { position: 'relative', flexShrink: 0 },
+  colorPickerDropdown: {
+    position: 'absolute', top: '36px', left: 0, background: COLORS.navyLight,
+    border: `1px solid ${COLORS.navy}`, borderRadius: '10px', padding: '10px',
+    display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px',
+    zIndex: 1100, boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+  },
+  colorPickerSwatch: {
+    width: '28px', height: '28px', borderRadius: '50%', border: 'none', padding: 0,
+  },
   resultName: { fontSize: '15px', margin: 0, fontWeight: 500 },
   resultDist: { fontSize: '13px', color: '#9A9588', margin: '2px 0 0' },
   resultPoints: { fontFamily: 'system-ui, sans-serif', fontSize: '18px', fontWeight: 700, color: COLORS.sage },
   scoreRow: { display: 'flex', alignItems: 'center', gap: '12px', padding: '8px 0' },
   scoreTotal: { fontFamily: 'system-ui, sans-serif', fontSize: '20px', fontWeight: 700, color: COLORS.orange },
-  devBanner: {
-    background: COLORS.navyLight, border: `1px dashed ${COLORS.orange}`, borderRadius: '8px',
-    padding: '10px 12px', fontSize: '12px', color: '#D6D1C5', marginBottom: '16px', lineHeight: 1.5,
-  },
 };
 
 // ============================================================
@@ -387,20 +391,13 @@ const styles = {
 
 function JoinScreen({ onJoin }) {
   const [name, setName] = useState('');
-  const [code, setCode] = useState('DEMO');
+  const [code, setCode] = useState('');
 
   return (
     <div style={styles.screen}>
       <div style={styles.brandBlock}>
         <h1 style={styles.brandTitle}>BLINDSPOT</h1>
         <p style={styles.brandSub}>the world is the board</p>
-      </div>
-
-      <div style={styles.devBanner}>
-        Prototype mode: this demo runs entirely in your browser tab, so you're
-        playing against yourself. The real version syncs across everyone's
-        phones in real time. Try the "We're here" button - it uses your
-        actual GPS!
       </div>
 
       <div style={styles.card}>
@@ -432,6 +429,48 @@ function JoinScreen({ onJoin }) {
           Same room code = same game. Everyone in the car uses the same code.
         </p>
       </div>
+    </div>
+  );
+}
+
+// A small color swatch that opens a popup grid of color options when tapped.
+// Colors already taken by other players are shown but disabled.
+function ColorPicker({ currentColor, takenColors, onPick }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div style={styles.colorPickerWrap}>
+      <button
+        style={{ ...styles.colorSwatch, width: '28px', height: '28px', background: currentColor, border: 'none', cursor: 'pointer', padding: 0 }}
+        onClick={() => setOpen((o) => !o)}
+        aria-label="Choose your pin color"
+      />
+      {open && (
+        <div style={styles.colorPickerDropdown}>
+          {PIN_COLORS.map((color) => {
+            const isTaken = takenColors.includes(color) && color !== currentColor;
+            const isCurrent = color === currentColor;
+            return (
+              <button
+                key={color}
+                style={{
+                  ...styles.colorPickerSwatch,
+                  background: color,
+                  opacity: isTaken ? 0.25 : 1,
+                  cursor: isTaken ? 'not-allowed' : 'pointer',
+                  outline: isCurrent ? `2px solid ${COLORS.cream}` : 'none',
+                }}
+                disabled={isTaken}
+                onClick={() => {
+                  onPick(color);
+                  setOpen(false);
+                }}
+                aria-label={`Pick color ${color}`}
+              />
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -468,7 +507,9 @@ function Lobby({ room, playerId, update, onLeave }) {
       const names = ['Sam', 'Jordan', 'Riley', 'Casey', 'Morgan'];
       const used = Object.values(r.players).map((p) => p.name);
       const name = names.find((n) => !used.includes(n)) || 'Guest';
-      r.players[fakeId] = { id: fakeId, name, score: 0, willDrive: true };
+      const usedColors = Object.values(r.players).map((p) => p.color);
+      const color = PIN_COLORS.find((c) => !usedColors.includes(c)) || PIN_COLORS[0];
+      r.players[fakeId] = { id: fakeId, name, score: 0, willDrive: true, color };
       r.driverOrder.push(fakeId);
     });
   };
@@ -476,6 +517,15 @@ function Lobby({ room, playerId, update, onLeave }) {
   const toggleWillDrive = (id) => {
     update((r) => {
       r.players[id].willDrive = !r.players[id].willDrive;
+    });
+  };
+
+  const setMyColor = (color) => {
+    update((r) => {
+      // Don't allow picking a color someone else already has
+      const taken = Object.values(r.players).some((p) => p.id !== playerId && p.color === color);
+      if (taken) return;
+      r.players[playerId].color = color;
     });
   };
 
@@ -553,7 +603,15 @@ function Lobby({ room, playerId, update, onLeave }) {
         <div style={styles.playerList}>
           {players.map((p, i) => (
             <div key={p.id} style={styles.playerRow}>
-              <div style={styles.playerAvatar}>{(p.name || '?')[0].toUpperCase()}</div>
+              {p.id === playerId ? (
+                <ColorPicker
+                  currentColor={p.color || PIN_COLORS[0]}
+                  takenColors={players.filter((other) => other.id !== playerId).map((other) => other.color)}
+                  onPick={setMyColor}
+                />
+              ) : (
+                <div style={{ ...styles.colorSwatch, width: '28px', height: '28px', background: p.color || PIN_COLORS[i % PIN_COLORS.length] }} aria-hidden="true" />
+              )}
               <span style={styles.playerName}>{p.name}{p.id === playerId ? ' (you)' : ''}</span>
 
               {gameMode === 'rotating' ? (
@@ -764,11 +822,16 @@ function makeDivIcon(html, size = 32, anchorRatio = 0.9) {
   });
 }
 
-// Distinct, high-contrast colors for player pins. Assigned by hashing the
-// player's id, so each person gets a consistent color across the round.
+// Distinct, high-contrast colors for player pins. Each player is assigned
+// one explicitly (stored on their player record) so colors are guaranteed
+// unique within a room rather than relying on hash collisions.
 const PIN_COLORS = ['#FF6B35', '#4A9DFF', '#7A9B76', '#E0C341', '#C77DFF', '#42D6C4', '#FF7AB6', '#9BD15B'];
 
-function colorForPlayer(playerId) {
+// Looks up a player's assigned color; falls back to a hash-based color for
+// any older player records that predate explicit color assignment.
+function colorForPlayer(players, playerId) {
+  const assigned = players?.[playerId]?.color;
+  if (assigned) return assigned;
   let hash = 0;
   for (let i = 0; i < playerId.length; i++) {
     hash = (hash * 31 + playerId.charCodeAt(i)) >>> 0;
@@ -844,9 +907,9 @@ function InvalidateSizeOnMount() {
   return null;
 }
 
-function GuessMap({ trueLocation, guessPos, onPick, disabled, playerId }) {
+function GuessMap({ trueLocation, guessPos, onPick, disabled, myColor }) {
   const initialCenter = useRef(randomNearbyPoint(trueLocation.lat, trueLocation.lng));
-  const myIcon = useRef(pinIcon(colorForPlayer(playerId))).current;
+  const myIcon = useRef(pinIcon(myColor)).current;
 
   return (
     <div style={styles.mapContainer}>
@@ -910,7 +973,7 @@ function RevealMap({ trueLocation, results, playerId }) {
         <Marker position={truePoint} icon={TRUE_LOCATION_ICON} />
         {results.map((r) => {
           if (!r.guess) return null;
-          const color = colorForPlayer(r.id);
+          const color = r.color || colorForPlayer(null, r.id);
           return (
             <React.Fragment key={r.id}>
               <Polyline
@@ -1001,7 +1064,7 @@ function GuessingScreen({ room, playerId, update, onLeave }) {
             guessPos={guessPos}
             onPick={hasGuessed ? () => {} : setGuessPos}
             disabled={hasGuessed}
-            playerId={playerId}
+            myColor={room.players[playerId]?.color || colorForPlayer(room.players, playerId)}
           />
 
           {hasGuessed && (
@@ -1131,7 +1194,7 @@ function RevealScreen({ room, playerId, update, onLeave }) {
         {sortedResults.map((r, i) => (
           <div key={r.id} style={styles.resultRow}>
             <span style={styles.resultRank}>{i + 1}</span>
-            <div style={{ ...styles.colorSwatch, background: colorForPlayer(r.id) }} aria-hidden="true" />
+            <div style={{ ...styles.colorSwatch, background: r.color || colorForPlayer(null, r.id) }} aria-hidden="true" />
             <div style={{ flex: 1 }}>
               <p style={styles.resultName}>{r.name}{r.id === playerId ? ' (you)' : ''}</p>
               <p style={styles.resultDist}>{r.distance !== null ? formatDistance(r.distance) : 'no guess'}</p>
@@ -1238,6 +1301,52 @@ export default function App() {
   };
 
   const handleLeave = () => {
+    // Remove this player from the room entirely so the game doesn't keep
+    // waiting for their guess and so the lobby/driver rotation reflects
+    // who's actually still playing.
+    update((r) => {
+      if (!r.players[playerId]) return r;
+
+      const wasCurrentDriver = r.driverOrder?.[r.currentDriverIndex] === playerId;
+      const removedIndex = (r.driverOrder || []).indexOf(playerId);
+
+      delete r.players[playerId];
+      r.driverOrder = (r.driverOrder || []).filter((id) => id !== playerId);
+      if (r.guesses) delete r.guesses[playerId];
+      if (r.singleDriverId === playerId) r.singleDriverId = null;
+
+      if (r.driverOrder.length === 0) {
+        r.currentDriverIndex = 0;
+      } else if (wasCurrentDriver) {
+        // The driver left mid-round - skip to the next driver and restart
+        // this round fresh rather than scoring an incomplete round.
+        r.currentDriverIndex = removedIndex % r.driverOrder.length;
+        r.phase = 'driving';
+        r.trueLocation = null;
+        r.guesses = {};
+      } else if (removedIndex !== -1 && removedIndex < r.currentDriverIndex) {
+        // A player before the current driver in the order left - shift
+        // the index down so it still points at the same driver.
+        r.currentDriverIndex -= 1;
+      }
+
+      if (r.currentDriverIndex >= r.driverOrder.length) {
+        r.currentDriverIndex = 0;
+      }
+
+      // If everyone remaining (besides the driver) has now guessed,
+      // move on rather than leaving the round stuck waiting on the
+      // player who just left.
+      if (r.phase === 'guessing' && r.driverOrder.length > 0) {
+        const driverIdNow = r.driverOrder[r.currentDriverIndex];
+        const guesserIds = Object.values(r.players).filter((p) => p.id !== driverIdNow).map((p) => p.id);
+        const allGuessed = guesserIds.length > 0 && guesserIds.every((id) => r.guesses[id]);
+        if (allGuessed) r.phase = 'reveal';
+      }
+
+      return r;
+    });
+
     setJoined(false);
     setRoomCode('');
     try {
